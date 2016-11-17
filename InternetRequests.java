@@ -1,114 +1,215 @@
-package wexpense.wallet.abastract;
+import android.content.Context;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
+import android.util.Log;
 
-import java.io.ByteArrayOutputStream;
-import java.io.InputStream;
-import java.net.URLEncoder;
-import java.util.List;
+import com.android.volley.AuthFailureError;
+import com.android.volley.DefaultRetryPolicy;
+import com.android.volley.Request;
+import com.android.volley.RequestQueue;
+import com.android.volley.Response;
+import com.android.volley.VolleyError;
+import com.android.volley.toolbox.StringRequest;
 
-import org.apache.http.HttpResponse;
-import org.apache.http.HttpStatus;
-import org.apache.http.NameValuePair;
-import org.apache.http.StatusLine;
-import org.apache.http.client.HttpClient;
-import org.apache.http.client.entity.UrlEncodedFormEntity;
-import org.apache.http.client.methods.HttpGet;
-import org.apache.http.client.methods.HttpPost;
-import org.apache.http.impl.client.DefaultHttpClient;
-import org.apache.http.protocol.HTTP;
+import java.util.HashMap;
+import java.util.Map;
 
-import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+
+import altcoin.br.vcash.application.MyApplication;
 
 public class InternetRequests {
-	// Is recommended all functions here be used in an AsyncTask
-	// This is only for help you
-	// If your application use a lot of requests, this class can be useful for
-	// you
+    /*
+    * Para usá-la, add isso no build.gradle
+    *
+    * compile 'com.mcxiaoke.volley:library:1.0.17' (ou outra versao)
+    *
+    * MyApplication é uma classe declarada como application no manifest que salva a instancia da RequestQueue.
+    *
+    * basicamente, se ela n existe é criada e se existe ele retorna ela, garantindo uma instancia só pra toda a aplicação
+    * */
 
-	// Execute a simple post, returning your result in String
-	// For your use, you can read this and put in Json reader or use how you
-	// want
-	public String executePost(String url, List<NameValuePair> params)
-			throws Exception {
-		HttpClient httpclient = new DefaultHttpClient();
-		HttpResponse response;
-		String responseString = null;
+    // cria um Listener vazio para erro, caso a chamada da função não passe um (obrigatório)
+    private static Response.ErrorListener emptyErrorListener = new Response.ErrorListener() {
+        @Override
+        public void onErrorResponse(VolleyError error) {
+            Utils.log("VolleyError: " + error.toString());
+        }
+    };
 
-		HttpPost post = new HttpPost(url);
+    // cria um Listener vazio para respostas com sucesso, caso a chamada da função não passe um (obrigatório)
+    private static Response.Listener emptyResponseListener = new Response.Listener<String>() {
+        @Override
+        public void onResponse(String response) {
 
-		post.setEntity(new UrlEncodedFormEntity(params, "UTF-8"));
+        }
+    };
 
-		response = httpclient.execute(post);
+    private Map<String, String> params;
+    private String tag;
+    private Map<String, String> headers;
 
-		StatusLine statusLine = response.getStatusLine();
+    public InternetRequests() {
+        params = new HashMap<>();
+        headers = new HashMap<>();
 
-		if (statusLine.getStatusCode() == HttpStatus.SC_OK) {
-			ByteArrayOutputStream out = new ByteArrayOutputStream();
-			response.getEntity().writeTo(out);
-			out.close();
-			responseString = out.toString();
-		} else {
-			// Closes the connection.
-			response.getEntity().getContent().close();
-		}
+        tag = "InternetRequests";
+    }
 
-		return responseString;
-	}
+    // verifica se o aparelho possui conexão com a internet no momento.
+    public static boolean isOnline(Context context) {
+        if (context == null) return false;
 
-	// Execute a simple get, returning your result in String
-	// For your use, you can read this and put in Json reader or use how you
-	// want
-	public String executeGet(String url, List<String> paramsKeys,
-			List<String> paramsValues) throws Exception {
-		HttpClient httpclient = new DefaultHttpClient();
-		HttpResponse response;
-		String responseString = null;
+        ConnectivityManager cm = (ConnectivityManager) context
+                .getSystemService(Context.CONNECTIVITY_SERVICE);
+        NetworkInfo netInfo = cm.getActiveNetworkInfo();
 
-		String paramsEncoded = "";
+        return netInfo != null && netInfo.isConnectedOrConnecting();
+    }
 
-		if (paramsKeys.size() > 0)
-			paramsEncoded += "?";
+    public void setTag(String tag) {
+        this.tag = tag;
+    }
 
-		for (int i = 0; i < paramsKeys.size(); i++) {
+    // parâmetros para requisição
+    public void setParams(Map<String, String> params) {
+        this.params = params;
+    }
 
-			paramsEncoded += paramsKeys.get(i)
-					+ "="
-					+ URLEncoder.encode(paramsValues.get(i), HTTP.UTF_8)
-							.toString();
+    public void setHeaders(Map<String, String> headers) {
+        this.headers = headers;
+    }
 
-			if (i < paramsKeys.size() - 2) {
-				paramsEncoded += "&";
-			}
-		}
+    // mesmo da função acima, mas invez de mandar um HashMap pode se mandar Strings e ele prepara o map internamente.
+    // obviamente precisa de um numero par de parametros (mas n tratei isso ainda)
+    // Exemplo:
+    // makeParams("nome", "Jonathan", "idade", "22")
+    public void makeParams(String... vars) {
+        params = new HashMap<>();
 
-		url += paramsEncoded;
+        for (int i = 0; i < vars.length; i += 2)
+            params.put(vars[i], vars[i + 1]);
+    }
 
-		response = httpclient.execute(new HttpGet(url));
-		StatusLine statusLine = response.getStatusLine();
-		if (statusLine.getStatusCode() == HttpStatus.SC_OK) {
-			ByteArrayOutputStream out = new ByteArrayOutputStream();
-			response.getEntity().writeTo(out);
-			out.close();
-			responseString = out.toString();
-		} else {
-			// Closes the connection.
-			response.getEntity().getContent().close();
+    public void makeHeaders(String... vars) {
+        headers = new HashMap<>();
 
-		}
+        for (int i = 0; i < vars.length; i += 2)
+            headers.put(vars[i], vars[i + 1]);
+    }
 
-		return responseString;
-	}
+    // adiciona paramestro a lista já criada, mesma lógica do item acima.
+    public void addParam(String... vars) {
+        for (int i = 0; i < vars.length; i += 2) params.put(vars[i], vars[i + 1]);
+    }
 
-	// This function get (by stream) an image and returns it for you using
-	// bitmap
-	public Bitmap getImage(String url) throws Exception {
-		String urldisplay = url;
-		Bitmap bitmap = null;
+    public void addHeader(String... vars) {
+        for (int i = 0; i < vars.length; i += 2) headers.put(vars[i], vars[i + 1]);
+    }
 
-		InputStream in = new java.net.URL(urldisplay).openStream();
-		bitmap = BitmapFactory.decodeStream(in);
+    // modos de executar um post.
+    public void executeGet(String url) {
+        executeGet(url, null, null);
+    }
 
-		return bitmap;
-	}
+    public void executeGet(String url, Response.Listener responseListener) {
+        executeGet(url, responseListener, null);
+    }
 
+    public void executeGet(String url, Response.Listener responseListener, Response.ErrorListener errorListener) {
+        executeRequest(Request.Method.GET, url, responseListener, errorListener, params);
+    }
+
+    // modos de executar um post.
+    public void executePost(String url) {
+        executePost(url, null, null);
+    }
+
+    public void executePost(String url, Response.Listener responseListener) {
+        executePost(url, responseListener, null);
+    }
+
+    private void executePost(String url, Response.Listener responseListener, Response.ErrorListener errorListener) {
+        executeRequest(Request.Method.POST, url, responseListener, errorListener, params);
+    }
+
+    // mais completo, onde pode mandar tudo.
+    private void executeRequest(int method, String url, Response.Listener responseListener, Response.ErrorListener errorListener, final Map<String, String> params) {
+        try {
+            Utils.log("URL: " + url);
+
+            if (responseListener == null) responseListener = emptyResponseListener;
+
+            if (errorListener == null) errorListener = emptyErrorListener;
+
+            RequestQueue rq = MyApplication.getInstance().getRequestQueue();
+
+            StringRequest request = new StringRequest(method,
+                    url,
+                    responseListener,
+                    errorListener
+            ) {
+                @Override
+                public Map<String, String> getParams() throws AuthFailureError {
+                    return params;
+                }
+
+                @Override
+                public Priority getPriority() {
+                    return (Priority.HIGH);
+                }
+
+                @Override
+                public Map<String, String> getHeaders() throws AuthFailureError {
+                    return headers;
+                }
+            };
+
+            request.setRetryPolicy(new DefaultRetryPolicy(
+                    45000,
+                    DefaultRetryPolicy.DEFAULT_MAX_RETRIES,
+                    DefaultRetryPolicy.DEFAULT_BACKOFF_MULT));
+
+            request.setTag(tag);
+
+            rq.add(request);
+        } catch (Exception e) {
+            Log.e("executePost", "Erro ao executar URL: " + url);
+
+            e.printStackTrace();
+        }
+    }
+
+    private static String hmacDigest(String msg, String keyString, String algo) {
+        String digest = null;
+        try {
+            SecretKeySpec key = new SecretKeySpec(
+                    (keyString).getBytes("UTF-8"), algo);
+            Mac mac = Mac.getInstance(algo);
+            mac.init(key);
+
+            byte[] bytes = mac.doFinal(msg.getBytes("ASCII"));
+
+            StringBuilder hash = new StringBuilder();
+            for (byte aByte : bytes) {
+                String hex = Integer.toHexString(0xFF & aByte);
+
+                if (hex.length() == 1)
+                    hash.append('0');
+
+                hash.append(hex);
+            }
+
+            digest = hash.toString();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        return digest;
+    }
+
+    public static String hmacDigest(String msg, String keyString) {
+        return hmacDigest(msg, keyString, "HmacSHA512");
+    }
 }
